@@ -1,5 +1,3 @@
-# win-clipboard [![NPM version][npm-image]][npm-url] [![Build Status][appveyor-image]][appveyor-url] [![Dependency Status][daviddm-image]][daviddm-url]
-
 This source code is based on Marek Lewandowski https://github.com/mlewand/win-clipboard
 
 An experimental Node.js module that provides you a full control over host clipboard in Windows environment.

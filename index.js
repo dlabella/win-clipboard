@@ -98,12 +98,12 @@ module.exports = {
 		return this.containsFormat('CF_BITMAP') || this.containsFormat('CF_DIBV5') || this.containsFormat('CF_DIB') || this.containsFormat('CF_TIFF');
 	},
 
-	getImage: function () {
-		return this.getData('CF_DIBV5');
+	getImage: function (format) {
+		return this.getData(format||'CF_DIBV5');
 	},
 
-	setImage: function (arrayBuffer) {
-		return this.setData('CF_DIBV5', arrayBuffer);
+	setImage: function (arrayBuffer, format) {
+		return this.setData(format||'CF_DIBV5', arrayBuffer);
 	},
 
 	getData: addon.getData,

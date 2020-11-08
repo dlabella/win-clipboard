@@ -1,11 +1,3 @@
 node_modules
-coverage
+.idea
 build
-*.vcx*
-*.aps
-*.rc
-*.sdf
-*.sln
-.vs
-.vscode
-resource.h

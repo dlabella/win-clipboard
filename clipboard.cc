@@ -1,10 +1,8 @@
-
+//#include <node.h>
+//#include <v8.h>
 #include <nan.h>
 #include <Windows.h>
 #include <map>
-
-namespace demo
-{
 
 using v8::FunctionCallbackInfo;
 using v8::Isolate;
@@ -48,8 +46,6 @@ void initFormats() {
 	standardFormats[ 12 ] = std::wstring( L"CF_WAVE" );
 }
 
-// A quick and dirty method to convert UTF16 to UTF8 - http://stackoverflow.com/questions/215963/how-do-you-properly-use-widechartomultibyte
-// Convert a wide Unicode string to an UTF8 string
 std::string utf8_encode(const std::wstring &wstr)
 {
     if( wstr.empty() ) return std::string();
@@ -69,93 +65,6 @@ std::wstring utf8_decode(const std::string &str)
     return wstrTo;
 }
 
-void GetUser(const FunctionCallbackInfo<Value> &args)
-{
-	const unsigned int BUFFER_SIZE = 255;
-	DWORD userNameLength = BUFFER_SIZE - 1;
-	BOOL res = false;
-	wchar_t userName[ BUFFER_SIZE ];
-	memset( userName, 0, sizeof( WCHAR ) * userNameLength );
-
-	res = GetUserNameW( userName, &userNameLength );
-
-    Isolate *isolate = args.GetIsolate();
-
-	if ( res ) {
-		args.GetReturnValue().Set(String::NewFromUtf8(isolate, utf8_encode( userName ).c_str()));
-	} else {
-		args.GetReturnValue().Set(Boolean::New(isolate, false));
-	}
-}
-
-void ClearClipboard( const FunctionCallbackInfo<Value> &args ) {
-	BOOL ret = true;
-
-	if ( !OpenClipboard( NULL ) ) {
-		ret = false;
-	}
-
-	EmptyClipboard();
-	CloseClipboard();
-
-	Isolate *isolate = args.GetIsolate();
-	args.GetReturnValue().Set(Boolean::New(isolate, ret));
-}
-
-void GetClipboardFormats( const FunctionCallbackInfo<Value> &args ) {
-	Isolate *isolate = args.GetIsolate();
-	Local<Array> arr = Array::New( isolate );
-
-	int formatsCount = CountClipboardFormats();
-	BOOL clipboardReady = false;
-	const int BUFFER_LENGTH = 255;
-
-	std::vector<UINT> types( formatsCount );
-
-	if ( !formatsCount ) {
-		// Early return, there's no need to open clipboard and do all this jazz.
-		return;
-	}
-
-	clipboardReady = OpenClipboard( NULL );
-
-	if ( !clipboardReady ) {
-		return;
-	}
-
-	for ( int i = 0; i < formatsCount; i++ ) {
-		// For first iteration 0 needs to be passed, for any subsequent call a previous
-		// id should be provided.
-		types[ i ] = EnumClipboardFormats( i == 0 ? 0 : types[ i-1 ] );
-
-		std::wstring out;
-
-		// Check for predefined formats.
-		if ( standardFormats.count( types[ i ] ) ) {
-			out = standardFormats[ types[ i ] ];
-		} else {
-			// Else pick it up from WINAPI.
-			TCHAR curName[ BUFFER_LENGTH ];
-			memset( curName, 0, sizeof( TCHAR ) * BUFFER_LENGTH );
-
-			GetClipboardFormatName( types[ i ], curName, BUFFER_LENGTH - 1 );
-
-			out = std::wstring( curName );
-		}
-
-		#ifdef UNICODE
-			arr->Set( i, String::NewFromUtf8(isolate, utf8_encode( out ).c_str()) );
-		#else
-			arr->Set( i, String::NewFromOneByte( isolate, curName ) );
-		#endif
-	}
-
-	args.GetReturnValue().Set( arr );
-
-	CloseClipboard();
-}
-
-// Looks for WinAPI format id, based on a given formatName.
 UINT GetFormatId( const std::wstring &formatName ) {
 	UINT formatId = 0;
 
@@ -184,7 +93,7 @@ UINT GetFormatId( const std::wstring &formatName ) {
 				buffer[ BUFFER_LENGTH - 1 ] = TEXT('\0');
 
 				// Compare...
-				if ( formatName.compare( &buffer[ 0 ] ) == 0 ) {
+				if ( formatName.compare( &(wchar_t)buffer[ 0 ] ) == 0 ) {
 					// Matched!
 					formatId = lastClipboardFormat;
 				}
@@ -198,25 +107,55 @@ UINT GetFormatId( const std::wstring &formatName ) {
 	return formatId;
 }
 
+void ClearClipboard( const FunctionCallbackInfo<Value> &args ) {
+	BOOL ret = true;
+
+	if ( !OpenClipboard( NULL ) ) {
+		ret = false;
+	}
+
+	EmptyClipboard();
+	CloseClipboard();
+
+	Isolate *isolate = args.GetIsolate();
+	args.GetReturnValue().Set(Boolean::New(isolate, ret));
+}
+
+void ContainsFormat( const FunctionCallbackInfo<Value> &args ) {
+	Isolate *isolate = args.GetIsolate();
+	Local<v8::Object> ret;
+
+	if ( !args[0]->IsString ()) {
+	    isolate->ThrowException(Exception::TypeError(
+			String::NewFromUtf8(isolate, "Argument 1 must be a string").ToLocalChecked()));
+	    return;
+	}
+	v8::String::Utf8Value formatRawName(isolate, args[ 0 ] );
+	std::wstring formatNameUtf16 = utf8_decode( *formatRawName );
+
+	UINT format = GetFormatId(formatNameUtf16);
+	args.GetReturnValue().Set( IsClipboardFormatAvailable(format) );
+}
+
 void GetData( const FunctionCallbackInfo<Value> &args ) {
 	Isolate *isolate = args.GetIsolate();
 	Local<v8::Object> ret;
 
 	if ( args.Length() < 1 ) {
 	    isolate->ThrowException(Exception::TypeError(
-			String::NewFromUtf8(isolate, "Missing argument 1")));
+			String::NewFromUtf8(isolate, "Missing argument 1").ToLocalChecked()));
 	    return;
 	}
 
 	if ( !args[0]->IsString() ) {
 	    isolate->ThrowException(Exception::TypeError(
-			String::NewFromUtf8(isolate, "Argument 1 must be a string")));
+			String::NewFromUtf8(isolate, "Argument 1 must be a string").ToLocalChecked()));
 	    return;
 	}
 
 	OpenClipboard( NULL );
 
-	v8::String::Utf8Value formatRawName( args[ 0 ] );
+	v8::String::Utf8Value formatRawName(isolate, args[ 0 ] );
 	std::wstring formatNameUtf16 = utf8_decode( *formatRawName );
 
 	UINT formatId = GetFormatId( formatNameUtf16 );
@@ -248,9 +187,6 @@ void GetData( const FunctionCallbackInfo<Value> &args ) {
 	}
 }
 
-// Sets the clipboard data with a given format.
-// Note that it does not clear the clipboard before, so that you can stack multiple different formats.
-// You should clan it by yourself if you wish to.
 void SetData( const FunctionCallbackInfo<Value> &args ) {
 	Isolate *isolate = args.GetIsolate();
 	const int minArgsCount = 2;
@@ -259,35 +195,30 @@ void SetData( const FunctionCallbackInfo<Value> &args ) {
 		char buffer[ 256 ];
 		memset( buffer, 0, sizeof( char ) * 256 );
 		sprintf( buffer, "Invalid arguments count. Expected %d but %d given.", minArgsCount, args.Length() );
-	    isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, buffer )));
+	    isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, buffer ).ToLocalChecked()));
 	    return;
 	}
 
 	if ( !args[1]->IsString() ) {
 	    isolate->ThrowException(Exception::TypeError(
-			String::NewFromUtf8(isolate, "Argument 2 must be a string")));
+			String::NewFromUtf8(isolate, "Argument 2 must be a string").ToLocalChecked()));
 	    return;
 	}
 
 	if ( !args[0]->IsArrayBuffer() ) {
-	    isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Argument 1 must be an ArrayBuffer")));
+	    isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Argument 1 must be an ArrayBuffer").ToLocalChecked()));
 	    return;
 	}
 
-	v8::Handle<v8::ArrayBuffer> newData = v8::Handle<v8::ArrayBuffer>::Cast( args[ 0 ] );
+	v8::Local<v8::ArrayBuffer> newData = v8::Local<v8::ArrayBuffer>::Cast( args[ 0 ] );
 	size_t newDataBytes = newData->GetContents().ByteLength();
 
-	v8::String::Utf8Value formatRawName( args[ 1 ] );
+	v8::String::Utf8Value formatRawName(isolate, args[ 1 ] );
 	std::wstring formatNameUtf16 = utf8_decode( *formatRawName );
 
 	OpenClipboard( NULL );
 
 	UINT formatId = GetFormatId( formatNameUtf16 );
-
-	// Format id is not a known format.
-	if ( formatId == 0 ) {
-		formatId = RegisterClipboardFormat( formatNameUtf16.c_str() );
-	}
 
 	if ( formatId != 0 ) {
 		// If valid fromat was given, do the magic and store the data.
@@ -311,22 +242,15 @@ void SetData( const FunctionCallbackInfo<Value> &args ) {
 	} else {
 		args.GetReturnValue().Set( Nan::Null() );
 	}
-
-
-	// args.GetReturnValue().Set( formatId != 0 ? ret : Nan::Null() );
 }
 
 void init(Local<Object> exports)
 {
-	initFormats();
-
-    NODE_SET_METHOD(exports, "getUser", GetUser);
-	NODE_SET_METHOD(exports, "clear", ClearClipboard);
-	NODE_SET_METHOD(exports, "getFormats", GetClipboardFormats);
-	NODE_SET_METHOD(exports, "getData", GetData);
-	NODE_SET_METHOD(exports, "setData", SetData);
+  initFormats();
+  NODE_SET_METHOD(exports, "clear", ClearClipboard);
+  NODE_SET_METHOD(exports, "getData", GetData);
+  NODE_SET_METHOD(exports, "setData", SetData);
+  NODE_SET_METHOD(exports, "containsFormat", ContainsFormat);
 }
 
 NODE_MODULE(addon, init)
-
-} // namespace demo
